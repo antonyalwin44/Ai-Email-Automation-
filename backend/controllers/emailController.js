@@ -200,6 +200,13 @@ const sendEmail = async (req, res) => {
 
     // Configure high-performance Gmail SMTP transporter (direct SSL port 465)
     const cleanPassword = process.env.GMAIL_APP_PASSWORD ? process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '') : '';
+    if (!process.env.GMAIL_USER || !cleanPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Gmail SMTP credentials missing. Please add GMAIL_USER and GMAIL_APP_PASSWORD in Render Environment variables.',
+      });
+    }
+
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
@@ -260,9 +267,17 @@ const sendEmail = async (req, res) => {
       })
     );
 
+    if (results.sent === 0 && results.failed > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Failed to send email: ${results.errors[0]?.error || 'Check Gmail credentials.'}`,
+        results,
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: `Emails processed: ${results.sent} sent, ${results.failed} failed.`,
+      message: `Emails processed: ${results.sent} sent successfully!`,
       results,
     });
   } catch (error) {

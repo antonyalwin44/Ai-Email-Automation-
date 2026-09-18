@@ -63,6 +63,10 @@ app.get(['/api/health', '/health'], async (_req, res) => {
       host: process.env.DB_HOST ? `${process.env.DB_HOST.slice(0, 12)}...` : 'localhost',
       error: dbError,
     },
+    smtp: {
+      configured: Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
+      user: process.env.GMAIL_USER || 'not set',
+    },
     timestamp: new Date().toISOString(),
   });
 });
