@@ -44,10 +44,25 @@ app.use(['/api/email', '/email'], emailRoutes);
 app.use(['/api/logs', '/logs'], logRoutes);
 
 // ─── Health Check ─────────────────────────────────────────────
-app.get(['/api/health', '/health'], (_req, res) => {
+const pool = require('./config/db');
+app.get(['/api/health', '/health'], async (_req, res) => {
+  let dbStatus = 'disconnected';
+  let dbError = null;
+  try {
+    const [rows] = await pool.query('SELECT 1 + 1 AS result');
+    if (rows) dbStatus = 'connected';
+  } catch (err) {
+    dbError = err.message;
+  }
+
   res.json({
     success: true,
     message: 'AI Email Automation API is running!',
+    database: {
+      status: dbStatus,
+      host: process.env.DB_HOST ? `${process.env.DB_HOST.slice(0, 12)}...` : 'localhost',
+      error: dbError,
+    },
     timestamp: new Date().toISOString(),
   });
 });

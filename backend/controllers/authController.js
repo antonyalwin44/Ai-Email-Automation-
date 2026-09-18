@@ -27,9 +27,10 @@ const login = async (req, res) => {
     }
 
     // Generate JWT
+    const jwtSecret = process.env.JWT_SECRET || 'mca_mini_project_super_secret_jwt_key_2026';
     const token = jwt.sign(
       { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
 
@@ -46,7 +47,10 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    return res.status(500).json({ success: false, message: 'Server error. Please try again.' });
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error. Please try again.',
+    });
   }
 };
 

@@ -1,7 +1,7 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
-const isRemote = process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1';
+const isRemote = Boolean(process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1');
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -13,18 +13,18 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   timezone: '+05:30',
-  ...(isRemote || process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {}),
+  ssl: (isRemote || process.env.DB_SSL === 'true') ? { minVersion: 'TLSv1.2', rejectUnauthorized: false } : undefined,
 });
 
 // Test the connection on startup
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
-    console.log('✅ MySQL Database connected successfully!');
+    console.log(`✅ MySQL Database connected successfully! (Host: ${process.env.DB_HOST || 'localhost'})`);
     connection.release();
   } catch (error) {
     console.error('⚠️ Database connection failed:', error.message);
-    console.error('👉 Tip: On Render/cloud hosting, ensure DB_HOST points to a cloud MySQL instance (e.g. TiDB Cloud/Aiven/Railway), not localhost.');
+    console.error(`👉 Current DB_HOST is: "${process.env.DB_HOST}". If on Render, verify your TiDB credentials in the Environment tab.`);
   }
 }
 
