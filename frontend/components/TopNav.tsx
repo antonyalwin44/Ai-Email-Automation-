@@ -124,10 +124,14 @@ export default function TopNav() {
   return (
     <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 flex-shrink-0 sticky top-0 z-20 transition-colors duration-200">
       {/* Left: Page context */}
-      <div>
-        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
+      <div className="flex items-center gap-3">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          HR Operations Hub
+        </span>
+        <span className="hidden sm:inline text-xs text-slate-400 dark:text-slate-500 font-medium">
           {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+        </span>
       </div>
 
       {/* Right: Actions */}

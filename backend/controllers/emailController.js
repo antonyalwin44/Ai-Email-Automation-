@@ -3,13 +3,41 @@ const nodemailer = require('nodemailer');
 const pool = require('../config/db');
 require('dotenv').config();
 
-// Helper to generate text using Ollama or Gemini
-const generateWithAI = async (prompt) => {
-  const provider = (process.env.AI_PROVIDER || 'ollama').toLowerCase();
+// Smart template fallback generator
+const generateSmartTemplate = ({ employee_name, department, event_name, event_type, formattedDate, formattedTime, venue, description }) => {
+  const subject = `Invitation: ${event_name} - ${formattedDate}`;
+  const timeText = formattedTime ? ` at ${formattedTime}` : '';
+  const descText = description ? `\n\nAbout the Event:\n${description}` : '';
 
-  if (provider === 'ollama') {
+  const body = `Dear ${employee_name},
+
+We are delighted to invite you and the ${department || 'team'} to our upcoming company ${event_type || 'event'}, "${event_name}".
+
+Event Details:
+📅 Date: ${formattedDate}${timeText}
+📍 Venue: ${venue || 'Company Main Hall'}
+🎉 Occasion: ${event_type || 'Company Celebration'}${descText}
+
+Your presence and active participation make these events truly special for our whole team. We look forward to celebrating and connecting together!
+
+If you have any questions or require any special accommodations, please feel free to reach out to the HR department.
+
+Warm regards,
+HR Operations Team
+AI Email Automation`;
+
+  return { subject, body };
+};
+
+// Helper to generate text using Ollama or Gemini with graceful fallback
+const generateWithAI = async (prompt) => {
+  // 1. Try local Ollama if available
+  try {
     const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-    const model = process.env.OLLAMA_MODEL || 'llama3.2:3b';
+    const model = process.env.OLLAMA_MODEL || 'qwen2.5:0.5b';
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout
 
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: 'POST',
@@ -19,27 +47,43 @@ const generateWithAI = async (prompt) => {
         prompt,
         stream: false,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
-    if (!response.ok) {
+    if (response.ok) {
+      const data = await response.json();
+      if (data.response && data.response.trim().length > 0) {
+        console.log(`✅ Email generated via Ollama (${model})`);
+        return data.response;
+      }
+    } else {
       const errText = await response.text();
-      throw new Error(`Ollama error (${response.status}): ${errText}`);
+      console.warn(`Ollama responded with error (${response.status}):`, errText);
     }
-
-    const data = await response.json();
-    return data.response;
+  } catch (err) {
+    console.warn('Ollama connection/generation failed:', err.message);
   }
 
-  // Fallback to Google Gemini AI
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.includes('your_gemini')) {
-    throw new Error('Gemini API key is not configured. Set AI_PROVIDER=ollama to use local Ollama.');
+  // 2. Try Google Gemini AI if configured
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey && !apiKey.includes('your_gemini')) {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      if (text && text.trim().length > 0) {
+        console.log('✅ Email generated via Google Gemini AI');
+        return text;
+      }
+    }
+  } catch (err) {
+    console.warn('Gemini AI generation failed:', err.message);
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  // Return null if neither AI provider is currently ready
+  return null;
 };
 
 // POST /api/email/generate-email
@@ -90,45 +134,62 @@ Requirements:
 
 Provide ONLY the email content starting with "Subject:" followed by the email body. No extra commentary.`;
 
+    let subject = '';
+    let body = '';
+    let fullEmail = '';
+
     const emailText = await generateWithAI(prompt);
 
-    // Parse subject and body
-    const lines = emailText.trim().split('\n');
-    let subject = '';
-    let bodyLines = [];
+    if (emailText) {
+      // Parse subject and body from AI output
+      const lines = emailText.trim().split('\n');
+      let bodyLines = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith('Subject:')) {
-        subject = lines[i].replace('Subject:', '').trim();
-        bodyLines = lines.slice(i + 1).filter((l) => l.trim() !== '' || bodyLines.length > 0);
-        break;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().startsWith('subject:')) {
+          subject = lines[i].replace(/^subject:\s*/i, '').trim();
+          bodyLines = lines.slice(i + 1).filter((l) => l.trim() !== '' || bodyLines.length > 0);
+          break;
+        }
       }
-    }
 
-    // Remove leading blank lines
-    while (bodyLines.length > 0 && bodyLines[0].trim() === '') {
-      bodyLines.shift();
-    }
+      // Remove leading blank lines
+      while (bodyLines.length > 0 && bodyLines[0].trim() === '') {
+        bodyLines.shift();
+      }
 
-    const body = bodyLines.join('\n');
+      body = bodyLines.length > 0 ? bodyLines.join('\n') : emailText;
+      fullEmail = emailText;
+    } else {
+      // Graceful fallback to smart personalized template
+      console.log(`ℹ️ Using smart HR template engine for ${employee_name} - ${event_name}`);
+      const fallback = generateSmartTemplate({
+        employee_name,
+        department,
+        event_name,
+        event_type,
+        formattedDate,
+        formattedTime,
+        venue,
+        description,
+      });
+      subject = fallback.subject;
+      body = fallback.body;
+      fullEmail = `Subject: ${subject}\n\n${body}`;
+    }
 
     return res.status(200).json({
       success: true,
       subject: subject || `Invitation to ${event_name}`,
-      body: body || emailText,
-      fullEmail: emailText,
+      body: body,
+      fullEmail: fullEmail,
+      aiGenerated: !!emailText,
     });
   } catch (error) {
     console.error('GenerateEmail error:', error);
-    let message = 'Failed to generate email. Try again.';
-    if (error.message?.includes('Ollama')) {
-      message = 'Failed to connect to Ollama. Make sure Ollama is running on localhost:11434.';
-    } else if (error.message?.includes('API key') || error.message?.includes('API_KEY')) {
-      message = error.message;
-    }
     return res.status(500).json({
       success: false,
-      message,
+      message: 'Unexpected error during email generation.',
     });
   }
 };

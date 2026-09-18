@@ -9,6 +9,11 @@ export const metadata: Metadata = {
   title: 'AI Email Automation | HR Management System',
   description: 'AI-Powered Employee Event Email Automation System for HR Teams',
   keywords: 'HR, email automation, AI, employee management, event management',
+  icons: {
+    icon: '/logo-icon.png',
+    shortcut: '/logo-icon.png',
+    apple: '/logo-icon.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

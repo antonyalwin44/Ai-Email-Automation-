@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Mail, Lock, Zap, ArrowRight } from 'lucide-react';
+import Image from 'next/image';
+import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
 import Cookies from 'js-cookie';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -56,12 +57,19 @@ export default function LoginPage() {
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-r from-brand-600 to-brand-800 px-8 py-10 text-center">
-            <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <Zap className="w-8 h-8 text-white" />
+          <div className="bg-gradient-to-r from-brand-600 to-brand-800 px-8 py-9 text-center">
+            <div className="w-20 h-20 bg-white rounded-2xl p-1.5 shadow-xl flex items-center justify-center mx-auto mb-4 border border-white/40">
+              <Image
+                src="/logo-emblem.png"
+                alt="AI Automation Email Logo"
+                width={72}
+                height={72}
+                className="w-full h-full object-contain"
+                priority
+              />
             </div>
-            <h1 className="text-2xl font-bold text-white">AI Email Automation</h1>
-            <p className="text-brand-200 text-sm mt-1">HR Management System</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">AI Automation Email</h1>
+            <p className="text-brand-200 text-sm mt-1">Simplifying HR Communications</p>
           </div>
 
           {/* Form */}
@@ -135,18 +143,9 @@ export default function LoginPage() {
               </button>
             </form>
 
-            {/* Demo credentials hint */}
-            <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <p className="text-xs font-semibold text-slate-600 mb-1">🔐 Demo Credentials</p>
-              <p className="text-xs text-slate-500">Email: <span className="font-mono text-brand-600">admin@company.com</span></p>
-              <p className="text-xs text-slate-500">Password: <span className="font-mono text-brand-600">admin123</span></p>
-            </div>
           </div>
         </div>
 
-        <p className="text-center text-slate-400 text-xs mt-6">
-          AI-Powered Employee Event Email Automation System • MCA Mini Project
-        </p>
       </div>
     </div>
   );
