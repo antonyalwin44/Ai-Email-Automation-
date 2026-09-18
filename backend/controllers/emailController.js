@@ -198,34 +198,41 @@ const sendEmail = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No active employees found with the given IDs.' });
     }
 
-    // Configure high-performance Gmail SMTP transporter (direct SSL port 465)
+    // 1. Check for Resend API Key (HTTPS Port 443 - 100% works on Render Free)
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const isDemoMode = process.env.DEMO_MAIL_MODE === 'true';
+
+    // 2. Configure Gmail SMTP (used for local/paid hosting or if Resend is not set)
     const cleanPassword = process.env.GMAIL_APP_PASSWORD ? process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '') : '';
-    if (!process.env.GMAIL_USER || !cleanPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Gmail SMTP credentials missing. Please add GMAIL_USER and GMAIL_APP_PASSWORD in Render Environment variables.',
+    let transporter = null;
+
+    if (!resendApiKey && !isDemoMode) {
+      if (!process.env.GMAIL_USER || !cleanPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email credentials missing. Please set GMAIL_USER & GMAIL_APP_PASSWORD or RESEND_API_KEY in Render Environment.',
+        });
+      }
+
+      transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: process.env.GMAIL_USER,
+          pass: cleanPassword,
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 8000,
       });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: cleanPassword,
-      },
-      connectionTimeout: 8000,
-      greetingTimeout: 8000,
-      socketTimeout: 10000,
-    });
-
     const results = { sent: 0, failed: 0, errors: [] };
 
-    // Process all recipient emails in parallel for maximum speed
+    // Process all recipient emails in parallel
     await Promise.all(
       employees.map(async (emp) => {
-        // Insert pending log
         let logId = null;
         try {
           const [insertRes] = await pool.query(
@@ -240,13 +247,40 @@ const sendEmail = async (req, res) => {
         const personalizedBody = body.replace(/Dear\s+[^\n,]+/g, `Dear ${emp.full_name}`);
 
         try {
-          await transporter.sendMail({
-            from: `"HR Operations" <${process.env.GMAIL_USER}>`,
-            to: emp.email,
-            subject: subject,
-            text: personalizedBody,
-            html: personalizedBody.replace(/\n/g, '<br>'),
-          });
+          if (resendApiKey) {
+            // Send via Resend REST API (HTTPS port 443 - Never blocked by Render Free)
+            const resendRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${resendApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                from: process.env.RESEND_FROM || 'HR Team <onboarding@resend.dev>',
+                to: emp.email,
+                subject: subject,
+                text: personalizedBody,
+                html: personalizedBody.replace(/\n/g, '<br>'),
+              }),
+            });
+
+            if (!resendRes.ok) {
+              const resendErr = await resendRes.json();
+              throw new Error(resendErr.message || 'Resend delivery failed');
+            }
+          } else if (isDemoMode) {
+            // Demo mode: simulate instantaneous delivery
+            console.log(`[DEMO MODE] Email to ${emp.email} simulated.`);
+          } else {
+            // Standard Gmail SMTP
+            await transporter.sendMail({
+              from: `"HR Operations" <${process.env.GMAIL_USER}>`,
+              to: emp.email,
+              subject: subject,
+              text: personalizedBody,
+              html: personalizedBody.replace(/\n/g, '<br>'),
+            });
+          }
 
           if (logId) {
             await pool.query('UPDATE email_logs SET status = ?, sent_time = NOW() WHERE id = ?', ['Sent', logId]);
@@ -254,15 +288,20 @@ const sendEmail = async (req, res) => {
           results.sent++;
         } catch (mailError) {
           console.error(`Failed to send email to ${emp.email}:`, mailError.message);
+          let friendlyError = mailError.message;
+          if (friendlyError.toLowerCase().includes('timeout')) {
+            friendlyError = 'Render Free tier blocks raw SMTP ports. Add RESEND_API_KEY (free at resend.com) or set DEMO_MAIL_MODE=true in Render Environment.';
+          }
+
           if (logId) {
             await pool.query('UPDATE email_logs SET status = ?, error_message = ? WHERE id = ?', [
               'Failed',
-              mailError.message,
+              friendlyError,
               logId,
             ]);
           }
           results.failed++;
-          results.errors.push({ email: emp.email, error: mailError.message });
+          results.errors.push({ email: emp.email, error: friendlyError });
         }
       })
     );
