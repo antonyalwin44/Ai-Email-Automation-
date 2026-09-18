@@ -198,73 +198,67 @@ const sendEmail = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No active employees found with the given IDs.' });
     }
 
-    // Configure Nodemailer transporter
+    // Configure high-performance Gmail SMTP transporter (direct SSL port 465)
+    const cleanPassword = process.env.GMAIL_APP_PASSWORD ? process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '') : '';
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
+        pass: cleanPassword,
       },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
     });
-
-    // Verify SMTP connection
-    try {
-      await transporter.verify();
-    } catch (smtpError) {
-      console.error('SMTP connection error:', smtpError);
-      return res.status(500).json({ success: false, message: 'Gmail SMTP connection failed. Check your credentials.' });
-    }
 
     const results = { sent: 0, failed: 0, errors: [] };
 
-    // Insert pending logs first
-    for (const emp of employees) {
-      await pool.query(
-        'INSERT INTO email_logs (employee_id, event_id, email_subject, email_body, recipient_email, status) VALUES (?, ?, ?, ?, ?, ?)',
-        [emp.id, event_id, subject, body, emp.email, 'Pending']
-      );
-    }
+    // Process all recipient emails in parallel for maximum speed
+    await Promise.all(
+      employees.map(async (emp) => {
+        // Insert pending log
+        let logId = null;
+        try {
+          const [insertRes] = await pool.query(
+            'INSERT INTO email_logs (employee_id, event_id, email_subject, email_body, recipient_email, status) VALUES (?, ?, ?, ?, ?, ?)',
+            [emp.id, event_id, subject, body, emp.email, 'Pending']
+          );
+          logId = insertRes.insertId;
+        } catch (dbErr) {
+          console.warn(`Failed to insert pending log for ${emp.email}:`, dbErr.message);
+        }
 
-    // Get the log IDs we just created
-    const [logs] = await pool.query(
-      `SELECT id, employee_id FROM email_logs WHERE event_id = ? AND status = 'Pending' AND employee_id IN (${placeholders})`,
-      [event_id, ...employee_ids]
+        const personalizedBody = body.replace(/Dear\s+[^\n,]+/g, `Dear ${emp.full_name}`);
+
+        try {
+          await transporter.sendMail({
+            from: `"HR Operations" <${process.env.GMAIL_USER}>`,
+            to: emp.email,
+            subject: subject,
+            text: personalizedBody,
+            html: personalizedBody.replace(/\n/g, '<br>'),
+          });
+
+          if (logId) {
+            await pool.query('UPDATE email_logs SET status = ?, sent_time = NOW() WHERE id = ?', ['Sent', logId]);
+          }
+          results.sent++;
+        } catch (mailError) {
+          console.error(`Failed to send email to ${emp.email}:`, mailError.message);
+          if (logId) {
+            await pool.query('UPDATE email_logs SET status = ?, error_message = ? WHERE id = ?', [
+              'Failed',
+              mailError.message,
+              logId,
+            ]);
+          }
+          results.failed++;
+          results.errors.push({ email: emp.email, error: mailError.message });
+        }
+      })
     );
-
-    // Send emails
-    for (const emp of employees) {
-      const log = logs.find((l) => l.employee_id === emp.id);
-      // Personalize the body — replace generic name placeholder
-      const personalizedBody = body.replace(/Dear\s+\w+/g, `Dear ${emp.full_name}`);
-
-      try {
-        await transporter.sendMail({
-          from: `"HR Team" <${process.env.GMAIL_USER}>`,
-          to: emp.email,
-          subject: subject,
-          text: personalizedBody,
-          html: personalizedBody.replace(/\n/g, '<br>'),
-        });
-
-        // Update log to Sent
-        if (log) {
-          await pool.query('UPDATE email_logs SET status = ?, sent_time = NOW() WHERE id = ?', ['Sent', log.id]);
-        }
-        results.sent++;
-      } catch (mailError) {
-        console.error(`Failed to send to ${emp.email}:`, mailError.message);
-        // Update log to Failed
-        if (log) {
-          await pool.query('UPDATE email_logs SET status = ?, error_message = ? WHERE id = ?', [
-            'Failed',
-            mailError.message,
-            log.id,
-          ]);
-        }
-        results.failed++;
-        results.errors.push({ email: emp.email, error: mailError.message });
-      }
-    }
 
     return res.status(200).json({
       success: true,
