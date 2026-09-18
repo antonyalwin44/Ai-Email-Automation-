@@ -1,4 +1,3 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nodemailer = require('nodemailer');
 const pool = require('../config/db');
 require('dotenv').config();
@@ -29,9 +28,8 @@ AI Email Automation`;
   return { subject, body };
 };
 
-// Helper to generate text using Ollama or Gemini with graceful fallback
+// Helper to generate text using Ollama (with smart template fallback)
 const generateWithAI = async (prompt) => {
-  // 1. Try local Ollama if available
   try {
     const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
     const model = process.env.OLLAMA_MODEL || 'qwen2.5:0.5b';
@@ -65,24 +63,7 @@ const generateWithAI = async (prompt) => {
     console.warn('Ollama connection/generation failed:', err.message);
   }
 
-  // 2. Try Google Gemini AI if configured
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey && !apiKey.includes('your_gemini')) {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      if (text && text.trim().length > 0) {
-        console.log('✅ Email generated via Google Gemini AI');
-        return text;
-      }
-    }
-  } catch (err) {
-    console.warn('Gemini AI generation failed:', err.message);
-  }
-
-  // Return null if neither AI provider is currently ready
+  // Return null so it gracefully falls back to the smart HR template engine
   return null;
 };
 
