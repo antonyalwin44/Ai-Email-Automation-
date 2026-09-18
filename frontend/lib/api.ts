@@ -1,7 +1,12 @@
 import axios from 'axios';
 import Cookies from 'js-cookie';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+let rawUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').trim();
+rawUrl = rawUrl.replace(/\/+$/, '');
+if (!rawUrl.endsWith('/api')) {
+  rawUrl += '/api';
+}
+const API_URL = rawUrl;
 
 const api = axios.create({
   baseURL: API_URL,
